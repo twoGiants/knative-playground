@@ -1,2 +1,33 @@
 # Knative Playground
 
+## Knative Serving Concepts
+
+Core resources:
+
+- **Services**: *top-level container for managing Route and Configuration.*
+- **Routes**: *provides a named endpoint that is backed by one or more Revisions.*
+- **Configurations**: *describes the desired state of a Revision, update triggers a new Revision.*
+- **Revisions**: *immutable snapshot of code and configuration.*
+
+A few more words about Revisions:
+
+- Support [auto scaling](https://knative.dev/docs/serving/autoscaling/).
+- Support [gradual rollout](https://knative.dev/docs/serving/rolling-out-latest-revision/) of traffic.
+- Automatically garbage collected.
+
+## Knative Eventing Concepts
+
+Set of APIs which allow to create components which route events from loosely coupled producers to consumers:
+
+- **Event producers / Sources**: *developed and deployed independently, can generate events before a consumer exist.*
+- **Event consumers / Sinks**: *can listen to events before producers exist and can send response events.*
+
+Supporting workloads:
+
+- Kubernetes Services
+- Knative Serving Services
+
+Events:
+
+- Are send via HTTP POST.
+- conform to `CloudEvents` specification => language agnostic
