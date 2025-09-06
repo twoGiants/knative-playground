@@ -9,6 +9,8 @@ Core resources:
 - **Configurations**: *describes the desired state of a Revision, update triggers a new Revision.*
 - **Revisions**: *immutable snapshot of code and configuration.*
 
+![serving architecture](docs/serving_arch.png)
+
 A few more words about Revisions:
 
 - Support [auto scaling](https://knative.dev/docs/serving/autoscaling/).
@@ -27,7 +29,23 @@ Supporting workloads:
 - Kubernetes Services
 - Knative Serving Services
 
-Events:
+**Events:**
 
 - Are send via HTTP POST.
-- conform to `CloudEvents` specification => language agnostic
+- Conform to `CloudEvents` specification => language agnostic.
+
+**Brokers:**
+
+- Provide endpoint for event ingress.
+- Deliver events via Triggers.
+
+**Triggers:**
+
+- Can filter events and send them to a Sink / Subscriber.
+
+**Sink**:
+
+- Can be any URL or `Addressable` resource.
+- Can reply and respond with a new event.
+
+![broker](docs/brokers.png)
