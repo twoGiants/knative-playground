@@ -49,3 +49,13 @@ Supporting workloads:
 - Can reply and respond with a new event.
 
 ![broker](docs/brokers.png)
+
+## Duck Typing
+
+Knative can use a resource without specific knowledge about the resource type, if:
+
+- The resource has the same fields as the common definition specifies.
+- The same behaviors as the common definition specifies.
+
+Sounds like **Interfaces**.
+
