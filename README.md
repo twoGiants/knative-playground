@@ -113,7 +113,9 @@ curl http://hello.default.127.0.0.1.sslip.io
 Hello World! # <- response
 ```
 
-Check how the service is auto scaled to zero after a minute and scaled back to two when you send a http request:
+#### Autoscaling
+
+Check how the service is **auto scaled** to zero after a minute and scaled back to two when you send a http request:
 
 ```sh
 kubectl get po -l serving.knative.dev/service=hello -w
@@ -136,4 +138,90 @@ hello-00001-deployment-5887686fbc-zlggl   0/2     Pending             0         
 hello-00001-deployment-5887686fbc-zlggl   0/2     ContainerCreating   0          0s
 hello-00001-deployment-5887686fbc-zlggl   1/2     Running             0          1s
 hello-00001-deployment-5887686fbc-zlggl   2/2     Running             0          1s
+```
+
+#### Traffic Splitting
+
+Use for blue/green and canary deployments. First create a new *revision* using the cli:
+
+```sh
+kn service update hello \
+--env TARGET=Knative
+```
+
+Or `yaml`:
+
+```yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  template:
+    spec:
+      containers:
+        - image: ghcr.io/knative/helloworld-go:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: TARGET
+              value: "World"
+```
+
+Url did not change but the revision has a new name *hello-00002*. Lets call the url in the terminal:
+
+```sh
+curl http://hello.default.127.0.0.1.sslip.io
+
+Hello Knative!
+```
+
+View revisions:
+
+```sh
+kn revisions list
+NAME          SERVICE   TRAFFIC   TAGS   GENERATION   AGE     CONDITIONS   READY   REASON
+hello-00002   hello     100%             2            2m34s   3 OK / 4     True
+hello-00001   hello                      1            46m     3 OK / 4     True
+```
+
+100% of traffic is going to the latest revision, the highest generation. This is knative default but can be changed via `kn`:
+
+```sh
+kn service update hello \
+--traffic hello-00001=50 \
+--traffic @latest=50
+```
+
+Or `yaml`:
+
+```yaml
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: hello
+spec:
+  template:
+    spec:
+      containers:
+        - image: ghcr.io/knative/helloworld-go:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: TARGET
+              value: "Knative"
+  traffic:
+  - latestRevision: true
+    percent: 50
+  - latestRevision: false
+    percent: 50
+    revisionName: hello-00001
+```
+
+Now lets `curl` the service multiple times:
+
+```sh
+curl http://hello.default.127.0.0.1.sslip.io
+Hello World!
+Hello Knative!
 ```
