@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -e -o pipefail
 
-declare CLUSTER_CONFIG SKIP_KNATIVE_INSTALL
+declare CONTAINER_RUNTIME CLUSTER_CONFIG SKIP_KNATIVE_INSTALL REGISTRY_NAME REGISTRY_PORT
 
 info() {
   echo -e "[\e[93mINFO\e[0m] $1"
@@ -24,27 +24,34 @@ check_defaults() {
   if [ -z "$CONTAINER_RUNTIME" ]; then
     CONTAINER_RUNTIME="docker"
   fi
+  info "Using container runtime: $CONTAINER_RUNTIME"
 
   if [ -z "$CLUSTER_CONFIG" ]; then
     CLUSTER_CONFIG="cluster/one-node-cluster.yaml"
   fi
+  info "Using cluster config: $CLUSTER_CONFIG"
 
-  info "Using container runtime: $CONTAINER_RUNTIME"
+  if [ -z "$REGISTRY_NAME" ]; then
+    REGISTRY_NAME='kind-registry'
+  fi
+
+  if [ -z "$REGISTRY_PORT" ]; then
+    REGISTRY_PORT='5000'
+  fi
+  info "Using registry: $REGISTRY_NAME:$REGISTRY_PORT"
 }
 
 create_registry() {
   info "Checking if registry exists..."
-  reg_name='kind-registry'
-  reg_port='5000'
-  local running="$(${CONTAINER_RUNTIME} inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
+  local running="$(${CONTAINER_RUNTIME} inspect -f '{{.State.Running}}' "${REGISTRY_NAME}" 2>/dev/null || true)"
   if [ "${running}" != 'true' ]; then
     info "Registry does not exist, creating..."
-    "$CONTAINER_RUNTIME" rm "${reg_name}" 2>/dev/null || true
+    "$CONTAINER_RUNTIME" rm "${REGISTRY_NAME}" 2>/dev/null || true
     "$CONTAINER_RUNTIME" run \
       -d \
       --restart=always \
-      -p "${reg_port}:5000" \
-      --name "${reg_name}" \
+      -p "${REGISTRY_PORT}:5000" \
+      --name "${REGISTRY_NAME}" \
       registry:2
     info "Registry started..."
   else
@@ -54,13 +61,13 @@ create_registry() {
 
 load_config() {
   local config
-  config=$(sed "s/\${reg_name}/${reg_name}/g; s/\${reg_port}/${reg_port}/g" "$CLUSTER_CONFIG")
+  config=$(sed "s/\${reg_name}/${REGISTRY_NAME}/g; s/\${reg_port}/${REGISTRY_PORT}/g" "$CLUSTER_CONFIG")
   echo "$config"
 }
 
 create_cluster() {
   info "Checking if cluster exists..."
-  running_cluster=$(kind get clusters | grep "$KIND_CLUSTER_NAME" || true)
+  local running_cluster=$(kind get clusters | grep "$KIND_CLUSTER_NAME" || true)
   if [ "${running_cluster}" != "$KIND_CLUSTER_NAME" ]; then
     info "Cluster does not exist, creating with the local registry enabled in containerd..."
     kind create cluster --config=<(load_config)
@@ -73,10 +80,10 @@ create_cluster() {
 
 connect_registry() {
   info "Check if registry is connected to the cluster network..."
-  connected_registry=$("$CONTAINER_RUNTIME" network inspect kind -f '{{json .Containers}}' | grep -q "${reg_name}" && echo "true" || echo "false")
+  local connected_registry=$("$CONTAINER_RUNTIME" network inspect kind -f '{{json .Containers}}' | grep -q "${REGISTRY_NAME}" && echo "true" || echo "false")
   if [ "${connected_registry}" != 'true' ]; then
     info "Registry is not connected, connecting the registry to the cluster network..."
-    "$CONTAINER_RUNTIME" network connect "kind" "${reg_name}" || true
+    "$CONTAINER_RUNTIME" network connect "kind" "${REGISTRY_NAME}" || true
     info "Connection established..."
   else
     info "Registry is connected..."
