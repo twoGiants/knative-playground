@@ -45,7 +45,7 @@ create_registry() {
   info "Checking if registry exists..."
   local running="$(${CONTAINER_RUNTIME} inspect -f '{{.State.Running}}' "${REGISTRY_NAME}" 2>/dev/null || true)"
   if [ "${running}" = 'true' ]; then
-    info "Registry exists..."
+    info "Registry exists."
     return 0
   fi
 
@@ -57,10 +57,32 @@ create_registry() {
     -p "${REGISTRY_PORT}:5000" \
     --name "${REGISTRY_NAME}" \
     registry:2
-  info "Registry started..."
+  info "Registry started."
 }
 
+create_gcr_cache() {
+  local gcr_cach_name="registry-gcr"
+  local gcr_cache_port="5001"
+  local gcr_cache_cfg="$HOME/Dev/active/knative/knative-playground/cluster/reg-gcr.yml"
+  local gcr_cache_data_dir="$HOME/Dev/active/knative/knative-playground/cluster/.cache"
+
+  sed -i "s/\${gcr_cache_port}/${gcr_cache_port}/" "$gcr_cache_cfg"
+
+  info "Checking if GCR cache registry exists..."
+  local running="$(${CONTAINER_RUNTIME} inspect -f '{{.State.Running}}' "${gcr_cach_name}" 2>/dev/null || true)"
+  if [ "${running}" = 'true' ]; then
+    info "GCR cache registry exists."
+    return 0
   fi
+
+  info "GCR cache registry does not exist, creating..."
+  # SELinux note: config bind mount has :Z; cache data dir uses a named volume (no label needed)
+  "$CONTAINER_RUNTIME" run -d --restart=always --name "${gcr_cach_name}" \
+    --network kind -p ${gcr_cache_port}:${gcr_cache_port} \
+    -v "${gcr_cache_cfg}:/etc/docker/registry/config.yml:Z,ro" \
+    -v "${gcr_cache_data_dir}:/var/lib/registry" \
+    registry:2
+  info "GCR cache registry started."
 }
 
 load_config() {
@@ -72,8 +94,8 @@ load_config() {
 create_cluster() {
   info "Checking if cluster exists..."
   local running_cluster=$(kind get clusters | grep "$KIND_CLUSTER_NAME" || true)
-  if [ "${running_cluster}" != "$KIND_CLUSTER_NAME" ]; then
-    info "Cluster exists..."
+  if [ "${running_cluster}" = "$KIND_CLUSTER_NAME" ]; then
+    info "Cluster exists."
     return 0
   fi
 
@@ -81,19 +103,20 @@ create_cluster() {
   kind create cluster --config=<(load_config)
   info "Waiting for the nodes to be ready..."
   kubectl wait --for=condition=ready node --all --timeout=600s
+  info "Nodes are ready."
 }
 
 connect_registry() {
   info "Check if registry is connected to the cluster network..."
   local connected_registry=$("$CONTAINER_RUNTIME" network inspect kind -f '{{json .Containers}}' | grep -q "${REGISTRY_NAME}" && echo "true" || echo "false")
-  if [ "${connected_registry}" != 'true' ]; then
-    info "Registry is connected..."
+  if [ "${connected_registry}" = 'true' ]; then
+    info "Registry is connected."
     return 0
   fi
-  
+
   info "Registry is not connected, connecting the registry to the cluster network..."
   "$CONTAINER_RUNTIME" network connect "kind" "${REGISTRY_NAME}" || true
-  info "Connection established..."
+  info "Connection established."
 }
 
 install_knative() {
@@ -210,11 +233,12 @@ shift $((OPTIND - 1))
 
 check_defaults
 create_registry
+create_gcr_cache
 create_cluster
 connect_registry
 
 if [ -z "$SKIP_KNATIVE_INSTALL" ]; then 
   install_knative
 else
-  info "Skipping Knative installation..."
+  info "Skipping Knative installation."
 fi
