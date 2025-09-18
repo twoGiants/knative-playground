@@ -7,6 +7,16 @@ info() {
   echo -e "[\e[93mINFO\e[0m] $1"
 }
 
+wait_crds() {
+  info "Waiting for CRDs to be established..."
+  kubectl wait --for=condition=Established --all crd
+}
+
+wait_pods() {
+  info "Waiting for pods in $1 to be ready..."
+  kubectl wait pod --timeout=10m --for=condition=Ready -l '!job-name' -n $1
+}
+
 check_defaults() {
   info "Check and defaults input params..."
   export KIND_CLUSTER_NAME=${CLUSTER_NAME:-"knative"}
@@ -26,7 +36,7 @@ create_registry() {
   info "Checking if registry exists..."
   reg_name='kind-registry'
   reg_port='5000'
-  running="$(${CONTAINER_RUNTIME} inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
+  local running="$(${CONTAINER_RUNTIME} inspect -f '{{.State.Running}}' "${reg_name}" 2>/dev/null || true)"
   if [ "${running}" != 'true' ]; then
     info "Registry does not exist, creating..."
     "$CONTAINER_RUNTIME" rm "${reg_name}" 2>/dev/null || true
@@ -75,17 +85,19 @@ connect_registry() {
 
 install_knative() {
   info "Checking if Knative Serving is installed in the cluster..."
-  running_knative_serving=$(kubectl get crds | grep -q "services.serving.knative.dev " && echo "true" || echo "false")
+  local running_knative_serving=$(kubectl get crds | grep -q "services.serving.knative.dev " && echo "true" || echo "false")
   if [ "${running_knative_serving}" != 'true' ]; then  
-    info "Knative Serving is not installed, installing ..."
-    kubectl apply -f https://storage.googleapis.com/knative-nightly/serving/latest/serving-crds.yaml
-    kubectl apply -f https://storage.googleapis.com/knative-nightly/serving/latest/serving-core.yaml
+    info "Knative Serving is not installed, installing..."
+    info "Installing Knative Serving CRDs..."
+    kubectl apply -f https://github.com/knative/serving/releases/download/knative-v1.19.6/serving-crds.yaml
+    wait_crds
 
-    info "Waiting for Knative Serving to become ready"
-    sleep 5; while echo && kubectl get pods -n knative-serving | grep -v -E "(Running|Completed|STATUS)"; do sleep 5; done
+    info "Installing Knative Serving core..."
+    kubectl apply -f https://github.com/knative/serving/releases/download/knative-v1.19.6/serving-core.yaml
+    wait_pods "knative-serving"
 
-    info "Setting up Kourier"
-    kubectl apply -f https://storage.googleapis.com/knative-nightly/net-kourier/latest/kourier.yaml
+    info "Installing Kourier Ingress..."
+    kubectl apply -f https://github.com/knative/net-kourier/releases/download/knative-v1.19.5/kourier.yaml
 
     cat <<EOF | kubectl apply -f -
 apiVersion: v1
@@ -112,30 +124,52 @@ spec:
   type: NodePort
 EOF
 
-    info "Waiting for Knative Ingress - Kourier to become ready"
-    sleep 5; while echo && kubectl get pods -n kourier-system | grep -v -E "(Running|Completed|STATUS)"; do sleep 5; done
+    info "Waiting for Knative Ingress - Kourier to become ready..."
+    wait_pods "kourier-system"
 
-    info "Setting up Kourier as default ingress gateway"
+    info "Setting up Kourier as default ingress gateway..."
     kubectl patch configmap/config-network -n knative-serving --type merge -p '{"data":{"ingress.class":"kourier.ingress.networking.knative.dev"}}'
 
-    info "Configure domain to 127.0.0.1.sslip.io"
+    info "Configure domain to 127.0.0.1.sslip.io ..."
     kubectl patch configmap/config-domain --namespace knative-serving --type merge --patch '{"data":{"127.0.0.1.sslip.io":""}}'
+
+    info "Finished installing Knative Serving."
   else
-    info "Knative Serving is installed..."
+    info "Knative Serving is installed."
   fi
 
   info "Checking if Knative Eventing is installed in the cluster..."
-  running_knative_eventing=$(kubectl get crds | grep -q "brokers.eventing.knative.dev" && echo "true" || echo "false")
+  local running_knative_eventing=$(kubectl get crds | grep -q "brokers.eventing.knative.dev" && echo "true" || echo "false")
   if [ "${running_knative_eventing}" != 'true' ]; then  
-    info "Knative Eventing is not installed, installing ..."
-    kubectl apply --selector knative.dev/crd-install=true --filename https://storage.googleapis.com/knative-nightly/eventing/latest/eventing.yaml
-    sleep 5
-    kubectl apply --filename https://storage.googleapis.com/knative-nightly/eventing/latest/eventing.yaml
+    info "Knative Eventing is not installed, installing..."
+    info "Installing Knative Eventing CRDs..."
+    kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v1.19.4/eventing-crds.yaml
+    wait_crds
 
-    info "Waiting for Knative Eventing to become ready"
-    sleep 5; while echo && kubectl get pods -n knative-eventing | grep -v -E "(Running|Completed|STATUS)"; do sleep 5; done
+    info "Installing Knative Eventing core..."
+    kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v1.19.4/eventing-core.yaml
+    wait_pods "knative-eventing"
+
+    info "Installing in-memory channel..."
+    kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v1.19.4/in-memory-channel.yaml
+    wait_pods "knative-eventing"
+
+    info "Installing MT-Channel broker..."
+    kubectl apply -f https://github.com/knative/eventing/releases/download/knative-v1.19.4/mt-channel-broker.yaml
+    wait_pods "knative-eventing"
+
+    cat <<EOF | kubectl apply -f -
+apiVersion: eventing.knative.dev/v1
+kind: broker
+metadata:
+  name: example-broker
+  namespace: default
+EOF
+
+    info "Example broker installed..."
+    info "Finished installing Knative Eventing."
   else
-    info "Knative Eventing is installed..."
+    info "Knative Eventing is installed."
   fi
 
   info "Knative setup completed!"
