@@ -44,18 +44,22 @@ check_defaults() {
 create_registry() {
   info "Checking if registry exists..."
   local running="$(${CONTAINER_RUNTIME} inspect -f '{{.State.Running}}' "${REGISTRY_NAME}" 2>/dev/null || true)"
-  if [ "${running}" != 'true' ]; then
-    info "Registry does not exist, creating..."
-    "$CONTAINER_RUNTIME" rm "${REGISTRY_NAME}" 2>/dev/null || true
-    "$CONTAINER_RUNTIME" run \
-      -d \
-      --restart=always \
-      -p "${REGISTRY_PORT}:5000" \
-      --name "${REGISTRY_NAME}" \
-      registry:2
-    info "Registry started..."
-  else
+  if [ "${running}" = 'true' ]; then
     info "Registry exists..."
+    return 0
+  fi
+
+  info "Registry does not exist, creating..."
+  "$CONTAINER_RUNTIME" rm "${REGISTRY_NAME}" 2>/dev/null || true
+  "$CONTAINER_RUNTIME" run \
+    -d \
+    --restart=always \
+    -p "${REGISTRY_PORT}:5000" \
+    --name "${REGISTRY_NAME}" \
+    registry:2
+  info "Registry started..."
+}
+
   fi
 }
 
@@ -69,25 +73,27 @@ create_cluster() {
   info "Checking if cluster exists..."
   local running_cluster=$(kind get clusters | grep "$KIND_CLUSTER_NAME" || true)
   if [ "${running_cluster}" != "$KIND_CLUSTER_NAME" ]; then
-    info "Cluster does not exist, creating with the local registry enabled in containerd..."
-    kind create cluster --config=<(load_config)
-    info "Waiting for the nodes to be ready..."
-    kubectl wait --for=condition=ready node --all --timeout=600s
-  else
     info "Cluster exists..."
+    return 0
   fi
+
+  info "Cluster does not exist, creating with the local registry enabled in containerd..."
+  kind create cluster --config=<(load_config)
+  info "Waiting for the nodes to be ready..."
+  kubectl wait --for=condition=ready node --all --timeout=600s
 }
 
 connect_registry() {
   info "Check if registry is connected to the cluster network..."
   local connected_registry=$("$CONTAINER_RUNTIME" network inspect kind -f '{{json .Containers}}' | grep -q "${REGISTRY_NAME}" && echo "true" || echo "false")
   if [ "${connected_registry}" != 'true' ]; then
-    info "Registry is not connected, connecting the registry to the cluster network..."
-    "$CONTAINER_RUNTIME" network connect "kind" "${REGISTRY_NAME}" || true
-    info "Connection established..."
-  else
     info "Registry is connected..."
+    return 0
   fi
+  
+  info "Registry is not connected, connecting the registry to the cluster network..."
+  "$CONTAINER_RUNTIME" network connect "kind" "${REGISTRY_NAME}" || true
+  info "Connection established..."
 }
 
 install_knative() {
