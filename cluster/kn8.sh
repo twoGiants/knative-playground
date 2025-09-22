@@ -27,7 +27,7 @@ check_defaults() {
   info "Using container runtime: $CONTAINER_RUNTIME"
 
   if [ -z "$CLUSTER_CONFIG" ]; then
-    CLUSTER_CONFIG="cluster/one-node-cluster.yaml"
+    CLUSTER_CONFIG="./one-node-cluster.yaml"
   fi
   info "Using cluster config: $CLUSTER_CONFIG"
 
@@ -61,15 +61,13 @@ create_registry() {
 }
 
 create_gcr_cache() {
-  local gcr_cach_name="registry-gcr"
-  local gcr_cache_port="5001"
-  local gcr_cache_cfg="$HOME/Dev/active/knative/knative-playground/cluster/reg-gcr.yml"
-  local gcr_cache_data_dir="$HOME/Dev/active/knative/knative-playground/cluster/.cache"
-
-  sed -i "s/\${gcr_cache_port}/${gcr_cache_port}/" "$gcr_cache_cfg"
+  local name="registry-gcr"
+  local config="reg-gcr.yml"
+  local port="$(yq '.http.addr' "${config}" | sed 's/://')"
+  local cache_data_dir=".cache"
 
   info "Checking if GCR cache registry exists..."
-  local running="$(${CONTAINER_RUNTIME} inspect -f '{{.State.Running}}' "${gcr_cach_name}" 2>/dev/null || true)"
+  local running="$(${CONTAINER_RUNTIME} inspect -f '{{.State.Running}}' "${name}" 2>/dev/null || true)"
   if [ "${running}" = 'true' ]; then
     info "GCR cache registry exists."
     return 0
@@ -77,10 +75,10 @@ create_gcr_cache() {
 
   info "GCR cache registry does not exist, creating..."
   # SELinux note: config bind mount has :Z; cache data dir uses a named volume (no label needed)
-  "$CONTAINER_RUNTIME" run -d --restart=always --name "${gcr_cach_name}" \
-    --network kind -p ${gcr_cache_port}:${gcr_cache_port} \
-    -v "${gcr_cache_cfg}:/etc/docker/registry/config.yml:Z,ro" \
-    -v "${gcr_cache_data_dir}:/var/lib/registry" \
+  "$CONTAINER_RUNTIME" run -d --restart=always --name "${name}" \
+    --network kind -p ${port}:${port} \
+    -v "./${config}:/etc/docker/registry/config.yml:Z,ro" \
+    -v "./${cache_data_dir}:/var/lib/registry" \
     registry:2
   info "GCR cache registry started."
 }
